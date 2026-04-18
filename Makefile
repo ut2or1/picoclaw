@@ -434,3 +434,23 @@ help:
 	@echo "  Binary: $(BINARY_PATH)"
 	@echo "  Install Prefix: $(INSTALL_PREFIX)"
 	@echo "  Workspace: $(WORKSPACE_DIR)"
+
+
+## build-launcher-windows: Build launcher for Windows amd64
+build-launcher-windows:
+	@echo "Building picoclaw-launcher for windows/amd64..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 GOTELEMETRY=off GOTELEMETRYWARNING=off \
+	$(GO) build $(GOFLAGS) \
+	-ldflags "$(LDFLAGS)" \
+	-o $(BUILD_DIR)/picoclaw-launcher.exe ./web/backend
+	@echo "Build complete: $(BUILD_DIR)/picoclaw-launcher.exe"
+
+## build-windows: Build picoclaw for Windows (amd64)
+build-windows: generate
+	@echo "Building $(BINARY_NAME) for Windows/amd64..."
+	@mkdir -p $(BUILD_DIR)
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build $(GOFLAGS) \
+		-ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/$(BINARY_NAME).exe ./$(CMD_DIR)
+	@echo "Windows builds complete:"
