@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -49,15 +50,17 @@ func validatePathWithAllowPaths(
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve workspace path: %w", err)
 	}
+	absWorkspace = normalizePathSeparators(filepath.Clean(absWorkspace))
 
 	var absPath string
 	if filepath.IsAbs(path) {
-		absPath = filepath.Clean(path)
+		absPath = normalizePathSeparators(filepath.Clean(path))
 	} else {
 		absPath, err = filepath.Abs(filepath.Join(absWorkspace, path))
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve file path: %w", err)
 		}
+		absPath = normalizePathSeparators(filepath.Clean(absPath))
 	}
 
 	if restrict {
@@ -72,16 +75,18 @@ func validatePathWithAllowPaths(
 		var resolved string
 		workspaceReal := absWorkspace
 		if resolved, err = filepath.EvalSymlinks(absWorkspace); err == nil {
-			workspaceReal = resolved
+			workspaceReal = normalizePathSeparators(filepath.Clean(resolved))
 		}
 
 		if resolved, err = filepath.EvalSymlinks(absPath); err == nil {
+			resolved = normalizePathSeparators(filepath.Clean(resolved))
 			if !isWithinWorkspace(resolved, workspaceReal) {
 				return "", fmt.Errorf("access denied: symlink resolves outside workspace")
 			}
 		} else if os.IsNotExist(err) {
 			var parentResolved string
 			if parentResolved, err = resolveExistingAncestor(filepath.Dir(absPath)); err == nil {
+				parentResolved = normalizePathSeparators(filepath.Clean(parentResolved))
 				if !isWithinWorkspace(parentResolved, workspaceReal) {
 					return "", fmt.Errorf("access denied: symlink resolves outside workspace")
 				}
@@ -101,7 +106,7 @@ func isAllowedPath(path string, patterns []*regexp.Regexp) bool {
 		return false
 	}
 
-	cleaned := filepath.Clean(path)
+	cleaned := normalizePathSeparators(filepath.Clean(path))
 	if !filepath.IsAbs(cleaned) {
 		return false
 	}
@@ -114,14 +119,25 @@ func isAllowedPath(path string, patterns []*regexp.Regexp) bool {
 		return false
 	}
 
+	resolved = normalizePathSeparators(filepath.Clean(resolved))
 	return matchesAllowedPath(resolved, patterns)
 }
 
 func matchesAllowedPath(path string, patterns []*regexp.Regexp) bool {
-	cleaned := filepath.Clean(path)
+	cleaned := normalizePathSeparators(filepath.Clean(path))
 	for _, pattern := range patterns {
 		if pattern.MatchString(cleaned) {
 			return true
+		}
+		// Try with escaped backslashes on Windows if pattern likely uses backslashes.
+		if runtime.GOOS == "windows" {
+			winPath := cleaned
+			if !strings.Contains(winPath, `\`) {
+				winPath = strings.ReplaceAll(winPath, "/", `\`)
+			}
+			if pattern.MatchString(winPath) {
+				return true
+			}
 		}
 		if root, ok := extractAllowedPathRoot(pattern); ok && isWithinAllowedRoot(cleaned, root) {
 			return true
@@ -142,6 +158,9 @@ func extractAllowedPathRoot(pattern *regexp.Regexp) (string, bool) {
 	literal = strings.TrimSuffix(literal, "(?:/|$)")
 	literal = strings.TrimSuffix(literal, `(?:\\|$)`)
 
+	// Also accept Windows-style optional separator suffixes
+	literal = strings.TrimSuffix(literal, `(?:\\|/|$)`)
+
 	// Reject patterns that still contain regex operators after removing the
 	// optional anchored-directory suffix. That keeps arbitrary regex behavior
 	// unchanged and only enables normalized prefix matching for literal paths.
@@ -154,7 +173,10 @@ func extractAllowedPathRoot(pattern *regexp.Regexp) (string, bool) {
 		return "", false
 	}
 
-	return filepath.Clean(unescaped), filepath.IsAbs(unescaped)
+	// Normalize separators and clean path
+	unescaped = normalizePathSeparators(unescaped)
+	cleaned := filepath.Clean(unescaped)
+	return cleaned, filepath.IsAbs(unescaped) || filepath.IsAbs(cleaned)
 }
 
 func appendUniquePath(paths []string, path string) []string {
@@ -211,16 +233,24 @@ func unescapeRegexLiteral(s string) (string, bool) {
 }
 
 func isWithinAllowedRoot(path, root string) bool {
-	candidate := filepath.Clean(path)
-	allowedVariants := []string{filepath.Clean(root)}
+	candidate := normalizePathSeparators(filepath.Clean(path))
+	allowedVariants := []string{normalizePathSeparators(filepath.Clean(root))}
 
 	if resolvedRoot, err := resolvePathAgainstExistingAncestor(root); err == nil {
-		allowedVariants = appendUniquePath(allowedVariants, filepath.Clean(resolvedRoot))
+		allowedVariants = appendUniquePath(allowedVariants, normalizePathSeparators(filepath.Clean(resolvedRoot)))
 	}
 
 	for _, allowedRoot := range allowedVariants {
 		if isWithinWorkspace(candidate, allowedRoot) {
 			return true
+		}
+		// On Windows, attempt matching with backslash variants
+		if runtime.GOOS == "windows" {
+			candWin := strings.ReplaceAll(candidate, "/", `\`)
+			allowedWin := strings.ReplaceAll(allowedRoot, "/", `\`)
+			if isWithinWorkspace(candWin, allowedWin) {
+				return true
+			}
 		}
 	}
 
@@ -228,9 +258,9 @@ func isWithinAllowedRoot(path, root string) bool {
 }
 
 func resolveExistingAncestor(path string) (string, error) {
-	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+	for current := normalizePathSeparators(filepath.Clean(path)); ; current = filepath.Dir(current) {
 		if resolved, err := filepath.EvalSymlinks(current); err == nil {
-			return resolved, nil
+			return normalizePathSeparators(filepath.Clean(resolved)), nil
 		} else if !os.IsNotExist(err) {
 			return "", err
 		}
@@ -241,7 +271,7 @@ func resolveExistingAncestor(path string) (string, error) {
 }
 
 func resolvePathAgainstExistingAncestor(path string) (string, error) {
-	cleaned := filepath.Clean(path)
+	cleaned := normalizePathSeparators(filepath.Clean(path))
 	for current := cleaned; ; current = filepath.Dir(current) {
 		resolved, err := filepath.EvalSymlinks(current)
 		if err == nil {
@@ -250,9 +280,9 @@ func resolvePathAgainstExistingAncestor(path string) (string, error) {
 				return "", relErr
 			}
 			if suffix == "." {
-				return filepath.Clean(resolved), nil
+				return normalizePathSeparators(filepath.Clean(resolved)), nil
 			}
-			return filepath.Clean(filepath.Join(resolved, suffix)), nil
+			return normalizePathSeparators(filepath.Clean(filepath.Join(resolved, suffix))), nil
 		}
 		if !os.IsNotExist(err) {
 			return "", err
@@ -264,8 +294,27 @@ func resolvePathAgainstExistingAncestor(path string) (string, error) {
 }
 
 func isWithinWorkspace(candidate, workspace string) bool {
-	rel, err := filepath.Rel(filepath.Clean(workspace), filepath.Clean(candidate))
-	return err == nil && (rel == "." || filepath.IsLocal(rel))
+	cleanWorkspace := normalizePathSeparators(filepath.Clean(workspace))
+	cleanCandidate := normalizePathSeparators(filepath.Clean(candidate))
+	cleanWorkspace = toOSPath(cleanWorkspace)
+	cleanCandidate = toOSPath(cleanCandidate)
+
+	rel, err := filepath.Rel(cleanWorkspace, cleanCandidate)
+	if err != nil {
+		return false
+	}
+
+	// On Windows, filepath.IsLocal returns true for paths that are not absolute with .. components.
+	// The intent: candidate is within workspace if rel is "." or does not start with "..".
+	if rel == "." {
+		return true
+	}
+	// Normalize separators in rel for evaluation
+	relNorm := normalizePathSeparators(rel)
+	if strings.HasPrefix(relNorm, ".."+string(filepath.Separator)) || relNorm == ".." {
+		return false
+	}
+	return true
 }
 
 type ReadFileTool struct {
@@ -1070,7 +1119,8 @@ func (r *sandboxFs) execute(path string, fn func(root *os.Root, relPath string) 
 func (r *sandboxFs) ReadFile(path string) ([]byte, error) {
 	var content []byte
 	err := r.execute(path, func(root *os.Root, relPath string) error {
-		fileContent, err := root.ReadFile(relPath)
+		fsPath := filepath.ToSlash(relPath)
+		fileContent, err := root.ReadFile(fsPath)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("failed to read file: file not found: %w", err)
@@ -1090,7 +1140,8 @@ func (r *sandboxFs) ReadFile(path string) ([]byte, error) {
 
 func (r *sandboxFs) WriteFile(path string, data []byte) error {
 	return r.execute(path, func(root *os.Root, relPath string) error {
-		dir := filepath.Dir(relPath)
+		fsPath := filepath.ToSlash(relPath)
+		dir := filepath.Dir(fsPath)
 		if dir != "." && dir != "/" {
 			if err := root.MkdirAll(dir, 0o755); err != nil {
 				return fmt.Errorf("failed to create parent directories: %w", err)
@@ -1144,7 +1195,8 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 func (r *sandboxFs) ReadDir(path string) ([]os.DirEntry, error) {
 	var entries []os.DirEntry
 	err := r.execute(path, func(root *os.Root, relPath string) error {
-		dirEntries, err := fs.ReadDir(root.FS(), relPath)
+		fsPath := filepath.ToSlash(relPath)
+		dirEntries, err := fs.ReadDir(root.FS(), fsPath)
 		if err != nil {
 			return err
 		}
@@ -1157,7 +1209,8 @@ func (r *sandboxFs) ReadDir(path string) ([]os.DirEntry, error) {
 func (r *sandboxFs) Open(path string) (fs.File, error) {
 	var f fs.File
 	err := r.execute(path, func(root *os.Root, relPath string) error {
-		file, err := root.Open(relPath)
+		fsPath := filepath.ToSlash(relPath)
+		file, err := root.Open(fsPath)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("failed to open file: file not found: %w", err)
@@ -1183,7 +1236,9 @@ type whitelistFs struct {
 }
 
 func (w *whitelistFs) matches(path string) bool {
-	return isAllowedPath(path, w.patterns)
+	normalized := normalizePathSeparators(filepath.Clean(path))
+	match := isAllowedPath(normalized, w.patterns)
+	return match
 }
 
 func (w *whitelistFs) ReadFile(path string) ([]byte, error) {
@@ -1228,23 +1283,71 @@ func buildFs(workspace string, restrict bool, patterns []*regexp.Regexp) fileSys
 }
 
 // Helper to get a safe relative path for os.Root usage
-func getSafeRelPath(workspace, path string) (string, error) {
-	if workspace == "" {
+func getSafeRelPath(wrkspc, path string) (string, error) {
+	if wrkspc == "" {
 		return "", fmt.Errorf("workspace is not defined")
 	}
+	workspace := filepath.ToSlash(wrkspc)
+    fsPath := filepath.ToSlash(path)
+	// Canonicalize both workspace and path using normalized separators
+	cleanWorkspace := normalizePathSeparators(filepath.Clean(workspace))
+	cleanPath := normalizePathSeparators(filepath.Clean(fsPath))
 
-	rel := filepath.Clean(path)
-	if filepath.IsAbs(rel) {
+	// If the provided path is absolute, convert it to a relative path against workspace
+	if filepath.IsAbs(cleanPath) {
 		var err error
-		rel, err = filepath.Rel(workspace, rel)
+		cleanPath, err = filepath.Rel(cleanWorkspace, cleanPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to calculate relative path: %w", err)
 		}
 	}
 
-	if !filepath.IsLocal(rel) {
+	// Prevent path components that would escape the workspace
+	if !filepath.IsLocal(cleanPath) {
 		return "", fmt.Errorf("path escapes workspace: %s", path)
 	}
 
-	return rel, nil
+	// Ensure the resulting relative path does not reference parent directories
+	relParts := strings.Split(cleanPath, "/")
+	for _, p := range relParts {
+		if p == ".." {
+			return "", fmt.Errorf("path escapes workspace: %s", path)
+		}
+	}
+
+	// Convert to OS-specific separators for os.Root consumption
+	return toOSPath(cleanPath), nil
+}
+
+func normalizePathSeparators(p string) string {
+	if p == "" {
+		return p
+	}
+	// Replace Windows backslashes with forward slashes for canonicalization
+	p = strings.ReplaceAll(p, `\`, `/`)
+	// Collapse multiple slashes
+	for strings.Contains(p, "//") {
+		p = strings.ReplaceAll(p, "//", "/")
+	}
+	// Preserve Windows drive letter case-insensitively by lowercasing drive on Windows
+	if runtime.GOOS == "windows" {
+		// If path starts with a drive letter like "C:/..."
+		if len(p) >= 2 && p[1] == ':' {
+			drive := strings.ToLower(string(p[0]))
+			p = drive + p[1:]
+		}
+	}
+	return p
+}
+
+func toOSPath(p string) string {
+	if p == "" {
+		return p
+	}
+	if os.PathSeparator == '/' {
+		// Unix-like system
+		return p
+	}
+	// Windows: replace forward slashes with backslashes
+	return strings.ReplaceAll(p, "/", `\`)
 }
