@@ -98,7 +98,8 @@ jobs:
         if: always()
         run: |
           if [ -d "build" ]; then
-            7z a -t7z -mx=9 artifacts/picoclaw-build.7z build
+            $buildNumber = "${{ github.run_number }}"
+            7z a -t7z -mx=9 artifacts/picoclaw-build-${buildNumber}.7z build
           else
             echo "Directory 'build' not found — skipping archive creation."
           fi
