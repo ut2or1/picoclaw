@@ -254,7 +254,7 @@
         "unavailable": "无法将不可用的模型设为默认",
         "isDefault": "该模型已是默认模型",
         "isVirtual": "无法将虚拟模型设为默认",
-        "unsupportedProvider": "该 Provider 仅用于 ASR，不能设为默认聊天模型"
+        "unsupportedProvider": "该服务商不能设为默认聊天模型。"
       },
       "deleteDisabled": {
         "isDefault": "无法删除默认模型"
@@ -263,8 +263,7 @@
     "defaultOnSave": {
       "label": "默认模型",
       "description": "保存后自动将该模型设置为默认模型。",
-      "unsupportedProvider": "该 Provider 可以保存在 model_list 中，但不能作为默认聊天模型使用。",
-      "clearOnSave": "保存这个仅用于 ASR 的模型后，会清除当前的默认聊天模型设置。"
+      "unsupportedProvider": "该服务商可以保存在模型列表中，但不能作为默认聊天模型使用。"
     },
     "add": {
       "button": "添加模型",
@@ -313,7 +312,8 @@
       "rpm": "速率限制（RPM）",
       "rpmHint": "每分钟最大请求数，0 表示不限制。",
       "thinkingLevel": "思考级别",
-      "thinkingLevelHint": "扩展思考预算：off、low、medium、high、xhigh、adaptive。",
+      "thinkingLevelHint": "留空则不传 thinking_level，使用 Provider 默认值。可选值：off、low、medium、high、xhigh、adaptive。",
+      "providerDefault": "Provider 默认",
       "maxTokensField": "Max Tokens 字段名",
       "maxTokensFieldHint": "覆盖请求中 max_tokens 的字段名，例如 max_completion_tokens。",
       "toolSchemaTransform": "工具 Schema 转换",
@@ -343,10 +343,12 @@
       "retry": "重试",
       "filterPlaceholder": "筛选模型...",
       "found": "已找到 {{count}} 个模型",
+      "found_plural": "已找到 {{count}} 个模型",
       "shown": "（显示 {{count}} 个）",
       "selectAll": "全选",
       "deselectAll": "取消全选",
       "fill": "填充 {{count}} 个选中的模型",
+      "fill_plural": "填充 {{count}} 个选中的模型",
       "failed": "获取模型失败"
     },
     "catalog": {
@@ -361,6 +363,7 @@
       "delete": "删除目录",
       "refresh": "从上游刷新",
       "found": "共 {{count}} 个模型",
+      "found_plural": "共 {{count}} 个模型",
       "selectAll": "全选",
       "deselectAll": "取消全选",
       "addSelected": "添加 {{count}} 个选中模型",
@@ -399,9 +402,7 @@
       "searchProvider": "搜索服务商...",
       "noProvider": "未找到服务商。",
       "noCatalog": "Provider catalog 暂不可用。",
-      "local": "本地",
-      "custom": "自定义服务商...",
-      "customPlaceholder": "输入服务商名称..."
+      "local": "本地"
     }
   },
   "channels": {
@@ -901,7 +902,13 @@
       "format_success": "JSON 格式化成功",
       "format_error": "JSON 格式无效",
       "format": "格式化",
-      "unsaved_changes": "您有未保存的更改"
+      "unsaved_changes": "您有未保存的更改",
+      "factory_reset": "恢复出厂设置",
+      "factory_reset_confirm_title": "恢复出厂设置",
+      "factory_reset_confirm_desc": "这将把所有配置重置为出厂默认值。API 密钥和安全凭证将被保留。当前配置将被备份。",
+      "factory_reset_confirm": "确认重置",
+      "factory_reset_success": "配置已重置为出厂默认值。",
+      "factory_reset_error": "重置配置失败。"
     },
     "logs": {
       "log_level_error": "更新日志等级失败。",
