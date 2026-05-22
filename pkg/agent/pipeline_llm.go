@@ -37,9 +37,10 @@ func (p *Pipeline) CallLLM(
 	// PreLLM: graceful terminal handling
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
+	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
 
 	// Native web search support
-	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web")
+	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
 	exec.useNativeSearch = webSearchEnabled && al.cfg.Tools.Web.PreferNative &&
 		func() bool {
 			if ns, ok := ts.agent.Provider.(providers.NativeSearchCapable); ok {
@@ -47,7 +48,6 @@ func (p *Pipeline) CallLLM(
 			}
 			return false
 		}()
-
 	if exec.useNativeSearch {
 		filtered := make([]providers.ToolDefinition, 0, len(exec.providerToolDefs))
 		for _, td := range exec.providerToolDefs {
@@ -94,8 +94,13 @@ func (p *Pipeline) CallLLM(
 				prevModel := exec.llmModel
 				exec.llmModel = llmReq.Model
 				exec.callMessages = llmReq.Messages
-				exec.providerToolDefs = llmReq.Tools
+				exec.providerToolDefs = filterToolsByTurnProfile(llmReq.Tools, ts.profile)
 				exec.llmOpts = llmReq.Options
+				nativeSearchAllowed := exec.useNativeSearch &&
+					turnProfileToolAllowed(ts.profile, "web_search")
+				if !nativeSearchAllowed {
+					delete(exec.llmOpts, "native_search")
+				}
 				if strings.TrimSpace(exec.llmModel) != "" && exec.llmModel != prevModel {
 					p.applyBeforeLLMModelRewrite(ts, exec)
 					applyTurnThinkingOptions(exec, ts.agent, exec.activeProvider, true)
@@ -410,7 +415,7 @@ func (p *Pipeline) CallLLM(
 				contextualSkills = ts.agent.ContextBuilder.ResolveActiveSkillsForContext(ts.activeSkills)
 			}
 			ts.recordSkillContextSnapshot(skillContextTriggerContextRetryRebuild, contextualSkills)
-			rebuildPromptReq := promptBuildRequestForTurn(ts, exec.history, exec.summary, "", nil)
+			rebuildPromptReq := promptBuildRequestForTurn(ts, exec.history, exec.summary, "", nil, p.Cfg)
 			rebuildPromptReq.ActiveSkills = append([]string(nil), contextualSkills...)
 			exec.messages = ts.agent.ContextBuilder.BuildMessagesFromPrompt(rebuildPromptReq)
 			exec.callMessages = exec.messages
